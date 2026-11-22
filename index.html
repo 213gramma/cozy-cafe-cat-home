@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>My Cozy Cafe & Cat Home — WebXR</title>
+<style>
+  :root{--ink:#34251e;--cream:#fff5df;--pink:#ffb7c8;--brown:#8b5e3c;--mint:#bdebd8}
+  *{box-sizing:border-box} body{margin:0;font-family:system-ui,Arial;background:#17131b;color:var(--ink);overflow:hidden}
+  #panel{position:fixed;z-index:5;top:12px;left:12px;width:min(360px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;background:rgba(255,245,223,.96);border:3px solid #8b5e3c;border-radius:18px;padding:12px;box-shadow:0 8px 30px #0007}
+  h1{font-size:19px;margin:0 0 8px} h2{font-size:15px;margin:12px 0 6px}
+  p{font-size:12px;margin:5px 0 9px;line-height:1.35}
+  button{border:0;border-radius:12px;padding:9px 11px;margin:3px;background:#8b5e3c;color:white;font-weight:700;font-size:12px}
+  button.secondary{background:#e9c6a4;color:#34251e} button:active{transform:scale(.97)}
+  .row{display:flex;flex-wrap:wrap;gap:4px}.row button{flex:1 1 auto}
+  #status{font-size:12px;background:#fff;border-radius:10px;padding:7px;margin-top:7px;min-height:32px}
+  #log{font-size:11px;max-height:65px;overflow:auto;margin-top:6px}
+  #close{float:right;background:#34251e}
+  #start{background:#2f8064}
+  #instructions{font-size:11px;color:#604735}
+  canvas{display:block}
+  @media(max-width:600px){#panel{width:calc(100vw - 16px);left:8px;top:8px;max-height:48vh}}
+</style>
+</head>
+<body>
+<div id="panel">
+  <button id="close" onclick="document.getElementById('panel').style.display='none'">Hide UI</button>
+  <h1>☕ My Cozy Cafe & Cat Home 🐈</h1>
+  <p>Passthrough-ready WebXR prototype. Start in VR/AR, then use the menu to visit places.</p>
+  <div class="row">
+    <button id="start">Enter Passthrough / VR</button>
+    <button class="secondary" onclick="document.getElementById('panel').style.display='none'">Hide menu</button>
+  </div>
+  <h2>📍 Teleport</h2>
+  <div class="row">
+    <button onclick="go('home')">My House</button><button onclick="go('cafe')">Cafe</button><button onclick="go('shop')">Shop</button>
+  </div>
+  <h2>🏠 House — two cats</h2>
+  <div class="row">
+    <button onclick="act('pet')">Pet nearby cat</button><button onclick="act('pick')">Pick up cat</button>
+    <button onclick="act('put')">Put cat down</button>
+  </div>
+  <div class="row">
+    <button onclick="feed('cat food')">Feed cat food</button><button onclick="feed('fish')">Give fish</button><button onclick="feed('milk')">Offer pretend milk</button>
+  </div>
+  <h2>☕ Cafe order screen</h2>
+  <div class="row">
+    <button onclick="order('Coffee')">Coffee</button><button onclick="order('Noodles + chopsticks')">Noodles</button>
+    <button onclick="order('Juice')">Drink</button><button onclick="order('Candy')">Candy</button><button onclick="order('Cookie')">Cookie</button>
+  </div>
+  <div class="row">
+    <button onclick="act('chopsticks')">Get chopsticks</button><button onclick="act('eat')">Eat / sip</button>
+  </div>
+  <h2>🛍️ Shop — everything is free for you</h2>
+  <div class="row">
+    <button onclick="shop('Player items')">Your stuff</button><button onclick="shop('Pet items')">Pet stuff</button>
+    <button onclick="shop('Food')">Food</button><button onclick="shop('Toys')">Toys</button>
+  </div>
+  <div class="row">
+    <button onclick="buy('Hat')">Get hat</button><button onclick="buy('Backpack')">Get backpack</button>
+    <button onclick="buy('Cat toy')">Get cat toy</button><button onclick="buy('Cat bed')">Get cat bed</button>
+  </div>
+  <h2>🤖 Talk to a bot</h2>
+  <div class="row">
+    <button onclick="talkTo('Cafe Bot')">Cafe bot</button><button onclick="talkTo('Cashier')">Cashier</button>
+    <button onclick="talkTo('Manager')">Manager</button><button onclick="talkTo('Employee')">Employee</button>
+  </div>
+  <div class="row">
+    <button onclick="startMic()">🎙️ Talk with microphone</button><button onclick="stopMic()" class="secondary">Stop mic</button>
+  </div>
+  <p id="instructions">Quest controls: point and squeeze/grip to grab nearby items. Use the menu buttons if controller interaction is unavailable. Microphone speech recognition depends on browser permission/support.</p>
+  <div id="status">Ready! Choose My House, Cafe, or Shop.</div>
+  <div id="log"></div>
+</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9ac7d8);
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, .01, 100);
+camera.position.set(0,1.6,3.5);
+const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true; document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x806050,2));
+const sun=new THREE.DirectionalLight(0xffffff,2); sun.position.set(3,6,4); scene.add(sun);
+const floorMat=new THREE.MeshStandardMaterial({color:0xd9c5a4});
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(30,30),floorMat); floor.rotation.x=-Math.PI/2; floor.position.y=-.03; scene.add(floor);
+const world=new THREE.Group(); scene.add(world);
+const interactables=[]; let place='home', held=null, heldController=null, selectedBot='Cafe Bot';
+const statusEl=document.getElementById('status'), logEl=document.getElementById('log');
+function say(s){statusEl.textContent=s; logEl.innerHTML=(s+'<br>'+logEl.innerHTML).slice(0,700);}
+function mat(c){return new THREE.MeshStandardMaterial({color:c,roughness:.8});}
+function box(x,y,z,w,h,d,c,parent=world){const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(c));o.position.set(x,y,z);parent.add(o);return o;}
+function sphere(x,y,z,r,c,parent=world){const o=new THREE.Mesh(new THREE.SphereGeometry(r,20,16),mat(c));o.position.set(x,y,z);parent.add(o);return o;}
+function label(text,x,y,z,color='#34251e'){
+ const canvas=document.createElement('canvas');canvas.width=512;canvas.height=128;const ctx=canvas.getContext('2d');
+ ctx.fillStyle='rgba(255,245,223,.92)';ctx.roundRect(5,5,502,118,22);ctx.fill();
+ ctx.fillStyle=color;ctx.font='bold 42px sans-serif';ctx.textAlign='center';ctx.fillText(text,256,78);
+ const tex=new THREE.CanvasTexture(canvas);const m=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.4),new THREE.MeshBasicMaterial({map:tex,transparent:true,side:THREE.DoubleSide}));
+ m.position.set(x,y,z);world.add(m);return m;
+}
+function clearWorld(){while(world.children.length){const o=world.children.pop();} interactables.length=0; held=null;}
+function addGrab(o,name){o.userData.grabName=name;interactables.push(o);return o;}
+function bot(x,z,name,shirt=0x5a9b83){
+ const g=new THREE.Group();g.position.set(x,0,z);world.add(g);
+ const body=new THREE.Mesh(new THREE.CapsuleGeometry(.22,.55,4,8),mat(shirt));body.position.y=.72;g.add(body);
+ const head=sphere(0,1.35,0,.24,0xffd2b0,g);
+ sphere(-.08,1.39,.2,.025,0x222222,g);sphere(.08,1.39,.2,.025,0x222222,g);
+ const screen=box(0,.9,.225,.25,.16,.025,0x1d2934,g);
+ label(name,x,1.85,z);
+ g.userData.botName=name;return g;
+}
+function cat(x,z,color,name){
+ const g=new THREE.Group();g.position.set(x,.18,z);world.add(g);
+ const torso=sphere(0,.23,0,.34,color,g);torso.scale.set(1.25,.75,.8);
+ const head=sphere(0,.55,.18,.23,color,g);
+ const ear1=new THREE.Mesh(new THREE.ConeGeometry(.09,.2,4),mat(color));ear1.position.set(-.14,.75,.18);g.add(ear1);
+ const ear2=ear1.clone();ear2.position.x=.14;g.add(ear2);
+ sphere(-.08,.58,.38,.025,0x222222,g);sphere(.08,.58,.38,.025,0x222222,g);
+ const nose=sphere(0,.51,.4,.03,0xf08c9c,g);
+ const tail=sphere(0,.18,-.38,.13,color,g);tail.scale.set(.5,.5,2);
+ g.userData.isCat=true;g.userData.catName=name;addGrab(g,name);label(name,x,1.12,z);return g;
+}
+function makeCafe(){
+ box(0,.02,0,7,.08,6,0xd8b78e);box(0,1.1,-2.3,4,.12,.5,0x8b5e3c);
+ box(-2,1.35,-2.3,.9,.4,.15,0x7f4e32);label('COZY CAFE',0,2.1,-2.4);
+ box(0,1.35,-1.95,1.2,.65,.12,0x243c52);label('ORDER HERE',0,1.78,-1.85,'#ffffff');
+ bot(-1.2,-1.5,'Cafe Bot',0x70a9a0);bot(1.4,-1.5,'Employee',0xd69c70);
+ const cup=addGrab(box(-1,.35,.2,.22,.35,.22,0xf5f1e7),'Coffee cup');
+ const noodle=addGrab(box(.1,.25,.2,.42,.18,.42,0xe8a34e),'Noodle bowl');
+ const sticks=addGrab(box(.55,.5,.2,.04,.65,.04,0x8a542c),'Chopsticks');sticks.rotation.z=.1;
+ label('Tables • Snacks • Drinks',0,1.4,1.8);
+}
+function makeHome(){
+ box(0,.02,0,7,.08,6,0xb6a28e);box(0,1.2,-2.4,5,.12,.2,0xf4d7c2);
+ label('MY HOUSE',0,2,-2.2);
+ box(-1.8,.25,-1,.9,.5,.9,0x7193b2);box(1.8,.25,-1,.9,.5,.9,0x7193b2);
+ cat(-.8,-.2,0xf0a5a5,'Mochi');cat(1,.5,0xe4d8bd,'Biscuit');
+ addGrab(box(-2,.2,1,.35,.3,.35,0x7a9c53),'Cat food');
+ addGrab(sphere(2,.2,1,.18,0x62a9dc),'Fish');
+ addGrab(sphere(2.5,.2,1,.15,0xffffff),'Pretend milk');
+ label('Pet • Pick up • Feed your cats',0,1.3,1.8);
+}
+function makeShop(){
+ box(0,.02,0,8,.08,6,0xc9d8c8);label('PET & PLAYER SHOP',0,2,-2.4);
+ for(let i=0;i<4;i++){box(-2.7+i*1.8,.7,-1.8,.9,1.2,.5,[0xe8a6b8,0x7eabd1,0xd9b86b,0x9bc9a7][i]);}
+ bot(-1,-.9,'Cashier',0x6e8cb8);bot(1,-.9,'Manager',0xa18ac7);bot(2.7,-.9,'Employee',0x70a9a0);
+ addGrab(sphere(-2,.3,.8,.2,0xe8a6b8),'Hat');addGrab(box(-1,.35,.8,.35,.45,.2,0x5986a8),'Backpack');
+ addGrab(box(0,.2,.8,.3,.25,.3,0xf1b3c5),'Cat toy');addGrab(box(1,.2,.8,.55,.25,.4,0xd9b88b),'Cat bed');
+ label('Everything for you is FREE!',0,1.5,1.8);
+}
+function go(p){place=p;clearWorld(); if(p==='home')makeHome();if(p==='cafe')makeCafe();if(p==='shop')makeShop();say('Teleported to '+(p==='home'?'your house':p==='cafe'?'the cafe':'the shop')+'.');}
+window.go=go;
+window.order=(food)=>{say('Order placed: '+food+'! The cafe bot is preparing it.'); if(place==='cafe'){const o=box((Math.random()-.5)*1.2,.3,.8,.35,.2,.35,food.includes('Noodles')?0xe7b15c:0xf2e7d2);addGrab(o,food);}};
+window.act=(a)=>{
+ if(a==='pet')say('You gently pet the nearest cat. Purr!'); else if(a==='pick'){const c=interactables.find(o=>o.userData.isCat);if(c){held=c;say('You picked up '+c.userData.catName+'. Use a grip to hold and release.');}else say('Visit your house to pick up a cat.');}
+ else if(a==='put'){held=null;say('You put the cat down gently.');}
+ else if(a==='chopsticks'){addGrab(box(.4,.45,.4,.035,.65,.035,0x8b542c),'Chopsticks');say('Chopsticks added! Grab them with your controller grip.');}
+ else if(a==='eat')say('Yum! Enjoy your food.');};
+window.feed=(food)=>say('You offered '+food+' to your cat. (This is pretend game food!)');
+window.shop=(category)=>say('Shop category: '+category+'. Pick an item from the shelves or use the free item buttons.');
+window.buy=(item)=>{say(item+' added to your inventory for FREE!');addGrab(box((Math.random()-.5),.35,.5,.25,.25,.25,0xe5b6a4),item);};
+window.talkTo=(name)=>{selectedBot=name;say('You are talking to '+name+'. Press the microphone button and say hello!');speak(name+' is ready to help you.');};
+function speak(t){if('speechSynthesis'in window){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t));}}
+let recognition=null;
+window.startMic=()=>{
+ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR){say('Speech recognition is not supported in this browser. Try the Quest browser microphone permission or use the text menu.');return;}
+ recognition=new SR();recognition.continuous=true;recognition.interimResults=false;recognition.lang='en-US';
+ recognition.onresult=(e)=>{const text=e.results[e.results.length-1][0].transcript.toLowerCase();say('You said: "'+text+'"');let reply='Thanks for talking with me! What would you like today?';
+ if(text.includes('coffee'))reply='One coffee coming up!';else if(text.includes('noodle'))reply='Noodles with chopsticks, coming right up!';else if(text.includes('hello')||text.includes('hi'))reply='Hello! Welcome in!';else if(text.includes('cat'))reply='Aww, I love cats!';else if(text.includes('help'))reply='I can help you order food or find things in the shop.';
+ speak(selectedBot+': '+reply);};
+ recognition.onerror=(e)=>say('Microphone issue: '+e.error+'. Check browser microphone permission.');
+ recognition.start();say('Microphone is on. Talk to '+selectedBot+'!');
+};
+window.stopMic=()=>{if(recognition)recognition.stop();say('Microphone stopped.');};
+document.getElementById('start').onclick=async()=>{
+ try{
+  if(!navigator.xr){say('WebXR is not available here. Open this page in the Meta Quest browser over HTTPS.');return;}
+  let mode='immersive-ar';
+  if(!(await navigator.xr.isSessionSupported(mode))) {mode='immersive-vr';if(!(await navigator.xr.isSessionSupported(mode))){say('This browser does not support immersive AR or VR.');return;}}
+  const session=await navigator.xr.requestSession(mode,{optionalFeatures:['local-floor','bounded-floor','hand-tracking']});
+  renderer.xr.setSession(session);say(mode==='immersive-ar'?'Passthrough session started!':'VR session started. AR passthrough is not supported in this browser.');
+  session.addEventListener('end',()=>say('XR session ended.'));
+ }catch(e){say('Could not start XR: '+e.message+'. Make sure the page is HTTPS and allow the XR permission.');}
+};
+// XR controllers: grip/squeeze grabs the closest object; release drops it.
+const controllers=[];
+for(let i=0;i<2;i++){
+ const c=renderer.xr.getController(i);scene.add(c);controllers.push(c);
+ c.addEventListener('squeezestart',()=>grabWith(c));
+ c.addEventListener('squeezeend',()=>{if(heldController===c){held=null;heldController=null;say('Dropped item.');}});
+ c.addEventListener('selectstart',()=>grabWith(c));
+}
+function grabWith(c){
+ if(held&&heldController===null){heldController=c;say('Holding '+(held.userData.catName||held.userData.grabName||'item')+'. Release grip to drop.');return;}
+ let best=null,dist=1.5;
+ const p=new THREE.Vector3();c.getWorldPosition(p);
+ for(const o of interactables){const q=new THREE.Vector3();o.getWorldPosition(q);const d=p.distanceTo(q);if(d<dist){dist=d;best=o;}}
+ if(best){held=best;heldController=c;say('Grabbed '+(best.userData.catName||best.userData.grabName||'item')+'.');}
+}
+go('home');
+function animate(){
+ renderer.setAnimationLoop(()=>{
+  if(held&&heldController){const pos=new THREE.Vector3(0,0,-.45).applyMatrix4(heldController.matrixWorld);held.position.lerp(pos,.35);held.quaternion.slerp(heldController.quaternion,.35);}
+  renderer.render(scene,camera);
+ });
+}
+animate();
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+</script>
+</body></html>
